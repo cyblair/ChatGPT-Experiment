@@ -1,0 +1,1 @@
+Write a commented java program called {title} that uses JOptionPanes to allow the user to enter a text and an integer n. The text will be put through a n-rotation cipher, ignoring non-alphabetical characters. The user can then  choose whether they want the cipher-text displayed, or saved to a file.
