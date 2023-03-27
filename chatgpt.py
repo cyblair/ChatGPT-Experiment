@@ -2,17 +2,18 @@ import os
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import messagebox
 import openai
 import asyncio
 import threading
 import time
+import json
 
-global WINDOW_WIDTH
-global WINDOW_HEIGHT
-global MAX_TOKENS
 WINDOW_WIDTH = 640
 WINDOW_HEIGHT = 360
 MAX_TOKENS = 2048
+FILES = [("All Files", "*.*"),
+        ("JSON files", "*.json")]
 
 def asyncioThread(async_loop, collector):
     async_loop.run_until_complete(collector.getCompletions(collector.getIterations()))
@@ -72,7 +73,7 @@ class ChatGPTCollector(tk.Frame):
 
         # Prompt input
         ttk.Label(frright, text="Prompt:").pack()
-        self.prompt = tk.Text(frright, height=5, wrap=tk.WORD)
+        self.prompt = tk.Text(frright, height=7, wrap=tk.WORD, font=("Segoe UI", "8"))
         self.prompt.pack()
         # Iterations input
         ttk.Label(frright, text="Iterations:").pack()
@@ -80,13 +81,54 @@ class ChatGPTCollector(tk.Frame):
         ttk.Entry(frright, textvariable=self.iterations).pack()
         # Get OpenAI Completions
         ttk.Button(frright, text="Run", command=lambda:getCompletions(async_loop, self)).pack()
-        
+
+        ttk.Label(frright, text="Configurations:").pack(side=tk.LEFT, padx=20)
+        ttk.Button(frright, text="Save", command=self.saveConfig).pack(side=tk.LEFT)
+        ttk.Button(frright, text="Load", command=self.loadConfig).pack(side=tk.LEFT)
+
         # Pack Right Region
         frright.pack(side=tk.RIGHT)
 
         master.title("ChatGPT Data Collector")
         master.geometry(str(WINDOW_WIDTH)+"x"+str(WINDOW_HEIGHT))
         master.mainloop()
+
+    def saveConfig(self):
+        f = filedialog.asksaveasfile(confirmoverwrite=True, filetypes=FILES, defaultextension=FILES)
+        jstring = json.dumps({'folder':self.folder.get(), 'file':self.fileName.get(), 
+                              'ext':self.extension.get(), 'model':self.dropdown_modelType.curselection(),
+                              'prompt':self.prompt.get("1.0", tk.END)})
+        f.write(jstring)
+        f.close()
+
+    def loadConfig(self):
+        f = filedialog.askopenfile(filetypes=FILES, defaultextension=FILES)
+        if (f == None):
+            return
+        
+        try:
+            jstring = f.read()
+            obj = json.loads(jstring)
+
+            folder = obj['folder']
+            file = obj['file']
+            ext = obj['ext']
+            model = obj['model']
+            prompt = obj['prompt']
+            self.folder.set(folder)
+            self.fileName.set(file)
+            self.extension.set(ext)
+            if (len(model) > 0):
+                self.dropdown_modelType.see(model[0])
+                self.dropdown_modelType.index(model[0])
+                self.dropdown_modelType.activate(model[0])
+            self.prompt.delete("1.0", tk.END)
+            self.prompt.insert("1.0", prompt)
+        except:
+            messagebox.showerror(title="File Error", 
+                                message="Something went wrong trying to load the specified file."+
+                                " Please only select files saved with this program.")
+        f.close()
 
     def getIterations(self):
         try:
@@ -116,17 +158,18 @@ class ChatGPTCollector(tk.Frame):
         etaLbl.pack()
 
         win.geometry("300x80")
+        win.update()
 
         start = time.time()
         model = self.getSelectedChatModel()
-        print(openai.Model.retrieve(model))
         chatPrompt = self.prompt.get("1.0", tk.END)
         for i in range(iterations):
             await self.getCompletion(model, chatPrompt, i)
-            prgrsLbl['text'] = "Progress ("+str(i)+"/"+str(iterations)+"): "
+            prgrsLbl['text'] = "Progress ("+str(i+1)+"/"+str(iterations)+"): "
             bar['value'] = i+1
-            eta = ((time.time()-start)/(i+1))*(iterations-i)
-            etaLbl['text'] = "Estimated time remaining: "+str(round(eta))+"s"
+            etaSeconds = round(((time.time()-start)/(i+1))*(iterations-i))
+            etaMinutes, etaSeconds = divmod(etaSeconds, 60)
+            etaLbl['text'] = "Estimated time remaining: %dm %ds" % (etaMinutes, etaSeconds)
             win.update()
 
         win.destroy()
@@ -134,20 +177,23 @@ class ChatGPTCollector(tk.Frame):
     async def getCompletion(self, model, chatPrompt, iteration):
         i = iteration
         name = self.fileName.get()+str(i)
-        completion = openai.Completion.create(
-            model=model,
-            prompt=chatPrompt.format(title=name),
-            max_tokens=MAX_TOKENS
-        )
-        f = open(self.folder.get()+"/"+name+self.extension.get(), "w")
-        f.write(completion.choices[0].text)
-        f.close()
+        try:
+            completion = openai.Completion.create(
+                model=model,
+                prompt=chatPrompt.format(title=name),
+                max_tokens=MAX_TOKENS
+            )
+            f = open(self.folder.get()+"/"+name+self.extension.get(), "w")
+            f.write(completion.choices[0].text)
+            f.close()
+        except openai.InvalidRequestError as e:
+            print(e)
 
 def main():
     key = os.getenv("OPENAI_API_KEY")
     openai.api_key = key
 
-    collector = ChatGPTCollector(tk.Tk())
+    ChatGPTCollector(tk.Tk())
     
 if __name__ == "__main__":
     main()
